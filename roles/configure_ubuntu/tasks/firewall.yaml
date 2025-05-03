@@ -23,10 +23,19 @@
   tags:
     - config.firewall
 
-- name: allow rpc ingress port
+- name: deny rpc ingress port tcp
   ufw:
-    rule: allow
+    rule: deny
     proto: tcp
+    direction: in
+    port: '{{ solana_rpc_port }}'
+  tags:
+    - config.firewall
+
+- name: deny rpc ingress port udp
+  ufw:
+    rule: deny
+    proto: udp
     direction: in
     port: '{{ solana_rpc_port }}'
   tags:
@@ -37,7 +46,7 @@
     rule: allow
     proto: udp
     direction: in
-    port: '{{ open_solana_ports_start }}:{{ open_solana_ports_end }}'
+    port: '{{ open_solana_ports_start }}:8050'
   tags:
     - config.firewall
 
@@ -46,7 +55,7 @@
     rule: allow
     proto: tcp
     direction: in
-    port: '{{ open_solana_ports_start }}:{{ open_solana_ports_end }}'
+    port: '{{ open_solana_ports_start }}:8050'
   tags:
     - config.firewall
 

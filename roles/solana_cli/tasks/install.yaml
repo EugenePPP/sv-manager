@@ -1,51 +1,113 @@
 ---
-- name: create download dir
+- name: create build directory
   file:
-    path: /tmp/solana
+    path: "/home/{{ solana_user }}/build"
     state: directory
     owner: "{{ solana_user }}"
     group: "{{ solana_user }}"
   tags:
     - cli.install
 
-- name: install solana
+- name: install solana from source
   block:
-    - name: download latest solana release installer
-      get_url:
-        url: "https://release.solana.com/v{{ solana_version | default('stable') }}/install"
-        dest: /tmp/solana/
-        mode: 0755
-
-    - name: run solana installer
-      shell: /tmp/solana/install
+    - name: clone jito-solana repository
+      git:
+        repo: https://github.com/jito-foundation/jito-solana.git
+        dest: "/home/{{ solana_user }}/build/jito-solana"
+        recursive: yes
+      
+    - name: checkout specific version tag
+      shell: |
+        cd /home/{{ solana_user }}/build/jito-solana
+        export TAG={{ solana_version }}
+        git checkout tags/$TAG
+        git submodule update --init --recursive
+      
+    - name: patch Cargo.toml with LTO profile
+      blockinfile:
+        path: "/home/{{ solana_user }}/build/jito-solana/Cargo.toml"
+        block: |
+          [profile.release-with-lto]
+          inherits = "release"
+          lto = "fat"
+          codegen-units = 1
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - release-with-lto profile"
+      
+    - name: patch cargo-install-all.sh script
+      blockinfile:
+        path: "/home/{{ solana_user }}/build/jito-solana/scripts/cargo-install-all.sh"
+        block: |
+              buildProfileArg='--profile release-with-debug'
+              buildProfile='release-with-debug'
+              shift
+          elif [[ $1 = --release-with-lto ]]; then
+              buildProfileArg='--profile release-with-lto'
+              buildProfile='release-with-lto'
+              shift
+          elif [[ $1 = --validator-only ]]; then
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - release-with-lto option"
+        insertafter: "elif \\[\\[ \\$1 = --release-with-debug \\]\\]; then"
+        backup: yes
+      
+    - name: ensure install directory exists
+      file:
+        path: "/home/{{ solana_user }}/.local/share/solana/install/releases/{{ solana_version }}"
+        state: directory
+        mode: '0755'
+      
+    - name: build and install solana
+      shell: |
+        cd /home/{{ solana_user }}/build/jito-solana
+        export TAG={{ solana_version }}
+        export RUSTFLAGS="-Clink-arg=-fuse-ld=lld -Ctarget-cpu=native"
+        ./scripts/cargo-install-all.sh --release-with-lto --validator-only /home/{{ solana_user }}/.local/share/solana/install/releases/$TAG
+      environment:
+        PATH: "/home/{{ solana_user }}/.cargo/bin:{{ ansible_env.PATH }}"
+      
+    - name: create symlink to active release
+      file:
+        src: "/home/{{ solana_user }}/.local/share/solana/install/releases/{{ solana_version }}"
+        dest: "/home/{{ solana_user }}/.local/share/solana/install/active_release"
+        state: link
+        force: yes
+      
+    - name: ensure PATH includes solana binaries in .bashrc
+      lineinfile:
+        path: "/home/{{ solana_user }}/.bashrc"
+        line: 'export PATH="/home/{{ solana_user }}/.local/share/solana/install/releases/{{ solana_version }}/bin:$PATH"'
+        state: present
+        create: yes
+      
+    - name: ensure PATH includes solana binaries in .profile
+      lineinfile:
+        path: "/home/{{ solana_user }}/.profile"
+        line: 'export PATH="/home/{{ solana_user }}/.local/share/solana/install/releases/{{ solana_version }}/bin:$PATH"'
+        state: present
+        create: yes
+      
+    - name: verify solana installation
+      shell: |
+        source /home/{{ solana_user }}/.profile
+        solana --version
+      register: solana_version_output
+      
+    - name: show solana version
+      debug:
+        var: solana_version_output.stdout
+      
   become: yes
   become_user: "{{ solana_user }}"
   tags:
     - cli.install
-  when: jito is not defined or not jito
 
-- name: install JITO solana
-  block:
-    - name: download latest jito release installer
-      get_url:
-        url: "https://release.jito.wtf/v{{ jito_version | default('stable') }}-jito/install"
-        dest: /tmp/solana/
-        mode: 0755
-
-    - name: run jito installer
-      shell: /tmp/solana/install
-  become: yes
-  become_user: "{{ solana_user }}"
-  tags:
-    - cli.install
-  when: jito is defined and jito
-
-- name: remove installer
+- name: clean up build directory
   file:
-    path: /tmp/solana
+    path: "/home/{{ solana_user }}/build/jito-solana"
     state: absent
   tags:
     - cli.install
+    - cli.cleanup
+  when: solana_cleanup_build | default(false)
 
 
 

@@ -22,5 +22,39 @@
       - python3-venv
       - ufw
       - rsyslog
+      - libssl-dev
+      - libudev-dev
+      - pkg-config
+      - zlib1g-dev
+      - llvm
+      - clang
+      - cmake
+      - make
+      - libprotobuf-dev
+      - protobuf-compiler
+      - lld
+      - curl
   tags:
     - config.packages
+
+- name: Download and install Rust
+  become_user: "{{ ansible_user_id }}"
+  shell: |
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+  args:
+    creates: "{{ ansible_user_dir }}/.cargo/bin/rustup"
+  tags:
+    - config.rust
+
+- name: Add Rust to PATH for this playbook run
+  become_user: "{{ ansible_user_id }}"
+  shell: |
+    source $HOME/.cargo/env
+    rustup component add rustfmt
+    rustup update
+    rustup default nightly
+    rustup override set nightly
+  args:
+    executable: /bin/bash
+  tags:
+    - config.rust

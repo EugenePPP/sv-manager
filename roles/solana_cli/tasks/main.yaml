@@ -5,27 +5,48 @@
   tags:
     - cli
     - cli.install
-    - cli.update
+ #   - cli.update
 
-- name: check solana cli installed
-  stat:
-    path: /home/solana/.local/share/solana/install/active_release/bin/solana-install
-  register: solana_exists
-  tags:
-    - cli
-    - cli.install
-    - cli.update
+- name: check solana cli installed and version
+  block:
+    - name: attempt to run solana command
+      command: solana --version
+      register: solana_check
+      failed_when: false
+      changed_when: false
+      tags:
+        - cli
+        - cli.install
+        - cli.update
+
+    - name: set solana existence facts
+      set_fact:
+        solana_exists: "{{ solana_check.rc == 0 }}"
+        current_version: "{{ solana_check.stdout.split(' ')[1] if solana_check.rc == 0 else '' }}"
+      tags:
+        - cli
+        - cli.install
+        - cli.update
+
+    - name: set version match fact
+      set_fact:
+        version_matches: "{{ solana_exists and current_version == solana_version }}"
+      tags:
+        - cli
+        - cli.install
+        - cli.update
+      when: solana_version is defined
 
 - name: install solana cli
   import_tasks: install.yaml
   tags:
     - cli
     - cli.install
-  when: force == 'true' or not solana_exists.stat.exists
+  when: force == 'true' or not solana_exists
 
 - name: update solana cli
   import_tasks: update.yaml
   tags:
     - cli
     - cli.update
-  when: force != 'true' and solana_exists.stat.exists
+  when: force != 'true' and solana_exists and (solana_version is defined and not version_matches | default(false))

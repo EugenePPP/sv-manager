@@ -13,8 +13,8 @@ install_validator () {
   echo "### Which type of validator you want to set up? ###"
   select cluster in "mainnet-beta" "testnet"; do
       case $cluster in
-          mainnet-beta ) inventory="mainnet.yaml"; break;;
-          testnet ) inventory="testnet.yaml"; break;;
+          mainnet-beta ) inventory="mainnet.yaml"; inv_internal="mainnet";break;;
+          testnet ) inventory="testnet.yaml"; inv_internal="testnet"; break;;
       esac
   done
 
@@ -71,9 +71,11 @@ install_validator () {
   #echo "pwd: $(pwd)"
   #ls -lah ./
 
+  read -e -p "Enter Solana version:" -i "v2.1.21-jito" solana_version 
+
   if [ ! -z $solana_version ]
   then
-    SOLANA_VERSION="--extra-vars {\"solana_version\":\"$solana_version\"}"
+    SOLANA_VERSION="--extra-vars {\"solana_version\":\"$solana_version\", \"inv_internal\":\"$inv_internal\"}"
   fi
   if [ ! -z $extra_vars ]
   then

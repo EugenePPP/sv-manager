@@ -10,6 +10,12 @@
   tags:
     - config.packages
 
+- name: Setup local disks
+  import_tasks: local_disk_setup.yml
+  tags:
+    - config.local_disks
+  when: "'localhost' in inventory_hostname or 'local' in group_names"
+
 - name: Create swap
   import_tasks: swap.yaml
   tags:
@@ -51,3 +57,9 @@
   tags:
     - config.solana_user
     - validator.service.solana
+
+- name: Tune POH
+  import_tasks: tune_poh.yaml
+  tags:
+    - config.poh
+    - validator.tune_poh

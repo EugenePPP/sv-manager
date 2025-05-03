@@ -1,0 +1,84 @@
+---
+- name: Detect, format, and mount unmounted disks on localhost
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+
+  vars:
+    excluded_mountpoints: ['/', '/boot']
+    mount_base: '/mnt/data'  # Changed from '/mnt/disk' to '/mnt/data'
+
+  tasks:
+    - name: Get all block devices with mount info
+      command: lsblk -o NAME,KNAME,TYPE,MOUNTPOINT -J
+      register: lsblk_output
+
+    - name: Show all detected block devices
+      debug:
+        var: lsblk_output.stdout | from_json | json_query("blockdevices[].kname")
+
+    - name: Parse lsblk output and find unused disks (no mounted partitions or no partitions at all)
+      set_fact:
+        unmounted_disks: >-
+          {{
+            lsblk_output.stdout | from_json |
+            json_query("blockdevices[?type=='disk' && (!children || !children[?mountpoint!='' && mountpoint!=null])].kname")
+          }}
+
+    - name: Show disks to be formatted and mounted
+      debug:
+        var: unmounted_disks
+
+    - name: Create a list of disk-to-mountpoint mappings
+      set_fact:
+        disk_mount_map: "{{ disk_mount_map | default({}) | combine({unmounted_disks[index]: mount_base ~ (index + 1)}) }}"
+      loop: "{{ range(0, unmounted_disks | length) | list }}"
+      loop_control:
+        index_var: index
+      when: unmounted_disks | length > 0
+
+    - name: Format each unmounted disk with XFS
+      filesystem:
+        fstype: xfs
+        dev: "/dev/{{ item.key }}"
+        force: yes
+      loop: "{{ disk_mount_map | dict2items }}"
+
+    - name: Ensure mount points exist
+      file:
+        path: "{{ item.value }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ disk_mount_map | dict2items }}"
+
+    - name: Mount each disk
+      mount:
+        path: "{{ item.value }}"
+        src: "/dev/{{ item.key }}"
+        fstype: xfs
+        state: mounted
+      loop: "{{ disk_mount_map | dict2items }}"
+
+    - name: Get UUID for each disk
+      command: blkid -s UUID -o value /dev/{{ item.key }}
+      register: disk_uuids
+      loop: "{{ disk_mount_map | dict2items }}"
+      changed_when: false
+
+    - name: Create mapping of disks to UUIDs
+      set_fact:
+        disk_uuid_map: "{{ disk_uuid_map | default({}) | combine({item.item.key: item.stdout}) }}"
+      loop: "{{ disk_uuids.results }}"
+
+    - name: Persist mounts in /etc/fstab using UUID
+      mount:
+        path: "{{ item.value }}"
+        src: "UUID={{ disk_uuid_map[item.key] }}"
+        fstype: xfs
+        opts: "defaults,noatime"
+        state: present
+        dump: 0
+        passno: 2
+      loop: "{{ disk_mount_map | dict2items }}"
+
